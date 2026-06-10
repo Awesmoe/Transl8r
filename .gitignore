@@ -1,0 +1,22 @@
+# env / caches
+venv/
+__pycache__/
+*.pyc
+
+# runtime state (written to repo root by the app)
+config.json
+config_bak.json
+transl8r_log.txt
+
+# TTS model files (downloaded manually, see README)
+*.onnx
+voices-*.bin
+
+# local-only files, not part of the published repo
+HANDOVER.md
+TODO.md
+CLAUDE.md
+Modelfile
+.claude/
+*.zip
+witc.jpg

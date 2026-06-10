@@ -1,0 +1,18 @@
+PySide6
+mss
+Pillow
+numpy
+requests
+manga-ocr
+torchvision  # needed by transformers 5.x image processors; manga-ocr doesn't pull it in
+faster-whisper
+sounddevice>=0.5
+soundcard  # WASAPI loopback fallback when PortAudio build lacks it
+argostranslate
+
+# optional: TTS output (also download model files, see README)
+# kokoro-onnx
+
+# optional: PaddleOCR backend
+# paddleocr
+# paddlepaddle-gpu  # or paddlepaddle for CPU
