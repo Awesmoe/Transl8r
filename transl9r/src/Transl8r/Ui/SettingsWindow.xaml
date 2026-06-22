@@ -1,0 +1,17 @@
+<Window x:Class="Transl8r.Ui.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="transl8r settings"
+        SizeToContent="WidthAndHeight"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="NoResize"
+        ShowInTaskbar="True">
+    <DockPanel Margin="12" LastChildFill="True">
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal"
+                    HorizontalAlignment="Right" Margin="0,12,0,0">
+            <Button Content="OK" Width="84" Margin="0,0,8,0" IsDefault="True" Click="OnOk" />
+            <Button Content="Cancel" Width="84" IsCancel="True" />
+        </StackPanel>
+        <TabControl x:Name="Tabs" MinWidth="420" />
+    </DockPanel>
+</Window>

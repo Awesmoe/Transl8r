@@ -1,0 +1,18 @@
+<Window x:Class="Transl8r.Ui.RegionSelectorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="transl8r region picker"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ResizeMode="NoResize"
+        Cursor="Cross">
+    <!-- Dim covers the whole virtual screen; the live selection punches a clear
+         hole in it (EvenOdd geometry, set in code). Existing region outlines and
+         the cyan selection rectangle are added to the Canvas in code-behind. -->
+    <Canvas x:Name="Root" Background="Transparent">
+        <Path x:Name="Dim" Fill="#66000000" />
+    </Canvas>
+</Window>

@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <!-- Implicit usings are OFF on purpose: with UseWindowsForms the SDK would
+         add global `using System.Windows.Forms;` which collides with WPF types
+         (Application, MessageBox, ...). Explicit usings keep it unambiguous. -->
+    <ImplicitUsings>disable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <!-- We use the built-in WinForms NotifyIcon for the tray (no external NuGet
+         needed for Phase 0). Can swap to Hardcodet.NotifyIcon.Wpf later if we
+         want XAML-bound menus. -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <RootNamespace>Transl8r</RootNamespace>
+    <AssemblyName>transl8r</AssemblyName>
+    <Version>0.1.0</Version>
+    <!-- WFAC010: the WinForms analyzer wants DPI set via ApplicationHighDpiMode,
+         but that only applies to WinForms-bootstrapped apps. We're WPF-primary
+         (WinForms is only here for the tray NotifyIcon), so PerMonitorV2 in
+         app.manifest is the correct mechanism. Suppress just this warning. -->
+    <NoWarn>$(NoWarn);WFAC010</NoWarn>
+  </PropertyGroup>
+
+</Project>

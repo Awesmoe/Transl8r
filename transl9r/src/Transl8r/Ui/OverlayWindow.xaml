@@ -1,0 +1,25 @@
+<Window x:Class="Transl8r.Ui.OverlayWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="transl8r overlay"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        Topmost="True"
+        ShowInTaskbar="False"
+        ShowActivated="False"
+        Focusable="False"
+        ResizeMode="NoResize"
+        SizeToContent="Height"
+        Width="320">
+    <!-- Window is transparent; the Border draws the translucent rounded box.
+         Background alpha + font sizes are set live from config in code-behind. -->
+    <Border x:Name="Root" CornerRadius="6" Padding="10,6" Background="#D9000000">
+        <StackPanel>
+            <TextBlock x:Name="OrigText" TextWrapping="Wrap" Foreground="#9FD6FF"
+                       FontSize="12" Margin="0,0,0,2" Visibility="Collapsed" />
+            <TextBlock x:Name="TransText" TextWrapping="Wrap" Foreground="#F0F0F0"
+                       FontSize="18" />
+        </StackPanel>
+    </Border>
+</Window>

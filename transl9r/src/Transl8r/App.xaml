@@ -1,0 +1,11 @@
+<Application x:Class="Transl8r.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             ShutdownMode="OnExplicitShutdown">
+    <!-- No StartupUri: this is a tray-only app with no main window. Lifetime is
+         controlled explicitly (ShutdownMode=OnExplicitShutdown) so closing a
+         transient window like a MessageBox or the future Settings dialog does
+         NOT quit the app. Startup logic lives in App.OnStartup. -->
+    <Application.Resources>
+    </Application.Resources>
+</Application>

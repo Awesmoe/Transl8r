@@ -1,0 +1,19 @@
+# .NET build output
+bin/
+obj/
+[Dd]ebug/
+[Rr]elease/
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.user
+*.suo
+
+# local runtime config written next to the exe
+config.json
+
+# downloaded model files (whisper, etc.) if they ever land here
+*.bin
+*.onnx
+*.jpg
