@@ -31,8 +31,12 @@ public partial class App : Application
     private WinForms.ToolStripMenuItem? _overlayItem;
     private WinForms.ToolStripMenuItem? _editItem;
 
+    private WinForms.ToolStripMenuItem? _listenItem;
+
     private readonly List<OverlayWindow> _overlays = new();
+    private OverlayWindow? _audioOverlay; // single, region-less (bottom-center)
     private OcrPipeline? _pipeline;
+    private AudioPipeline? _audioPipeline;
     private GlobalHotkeys? _hotkeys;
     private bool _suppressToggle; // set while syncing tray checkmarks from config
 
@@ -57,6 +61,8 @@ public partial class App : Application
         BuildTray();
         BuildOverlays();
 
+        BuildAudioOverlay();
+
         _hotkeys = new GlobalHotkeys();
         _hotkeys.Triggered += OnHotkey;
         ApplyHotkeys();
@@ -64,6 +70,10 @@ public partial class App : Application
         if (Config.OcrEnabled)
         {
             StartPipeline();
+        }
+        if (Config.AudioEnabled)
+        {
+            StartAudioPipeline();
         }
     }
 
@@ -95,6 +105,14 @@ public partial class App : Application
         };
         _overlayItem.CheckedChanged += (_, _) => ToggleOverlay(_overlayItem.Checked);
         menu.Items.Add(_overlayItem);
+
+        _listenItem = new WinForms.ToolStripMenuItem("Listen (system audio)")
+        {
+            CheckOnClick = true,
+            Checked = Config.AudioEnabled,
+        };
+        _listenItem.CheckedChanged += (_, _) => ToggleAudio(_listenItem.Checked);
+        menu.Items.Add(_listenItem);
 
         _editItem = new WinForms.ToolStripMenuItem("Edit overlay positions") { CheckOnClick = true };
         _editItem.CheckedChanged += (_, _) => ToggleEditMode(_editItem.Checked);
@@ -144,6 +162,28 @@ public partial class App : Application
             }
             _overlays.Add(ov);
         }
+    }
+
+    private void BuildAudioOverlay()
+    {
+        int dx = 0, dy = 0;
+        if (Config.AudioOverlayOffset is { Length: >= 2 } o)
+        {
+            dx = o[0];
+            dy = o[1];
+        }
+        _audioOverlay = new OverlayWindow(Config, region: null, dx, dy);
+        _audioOverlay.OffsetChanged += SaveAudioOverlayOffset;
+        if (_editItem?.Checked == true)
+        {
+            _audioOverlay.SetEditMode(true);
+        }
+    }
+
+    private void SaveAudioOverlayOffset(int dx, int dy)
+    {
+        Config.AudioOverlayOffset = new[] { dx, dy };
+        Config.Save();
     }
 
     // -------------------------------------------------------------- hotkeys
@@ -211,6 +251,38 @@ public partial class App : Application
     {
         _pipeline?.Stop();
         _pipeline = null;
+    }
+
+    private void StartAudioPipeline()
+    {
+        if (_audioPipeline != null)
+        {
+            return;
+        }
+        _audioPipeline = new AudioPipeline(Config);
+        _audioPipeline.TextReady += OnAudioTextReady;
+        _audioPipeline.Status += OnStatus;
+        _audioPipeline.Error += OnError;
+        _audioPipeline.Start();
+    }
+
+    private void StopAudioPipeline()
+    {
+        _audioPipeline?.Stop();
+        _audioPipeline = null;
+        Dispatcher.BeginInvoke((Action)(() => _audioOverlay?.ClearText()));
+    }
+
+    private void OnAudioTextReady(string ja, string en)
+    {
+        Dispatcher.BeginInvoke((Action)(() =>
+        {
+            Debug.WriteLine($"[audio] {ja}  =>  {en}");
+            if (Config.OutputOverlay)
+            {
+                _audioOverlay?.AppendLine(en); // rolling subtitle log
+            }
+        }));
     }
 
     // --------------------------------------------------------------- whisper test
@@ -329,6 +401,7 @@ public partial class App : Application
         {
             ov.SetEditMode(on);
         }
+        _audioOverlay?.SetEditMode(on);
         if (on)
         {
             Notify("Edit mode: drag overlays to reposition, then toggle off to lock.");
@@ -454,6 +527,24 @@ public partial class App : Application
         }
     }
 
+    private void ToggleAudio(bool on)
+    {
+        if (_suppressToggle)
+        {
+            return;
+        }
+        Config.AudioEnabled = on;
+        Config.Save();
+        if (on)
+        {
+            StartAudioPipeline();
+        }
+        else
+        {
+            StopAudioPipeline();
+        }
+    }
+
     private void ToggleOverlay(bool on)
     {
         if (_suppressToggle)
@@ -472,6 +563,14 @@ public partial class App : Application
             {
                 ov.Hide();
             }
+        }
+        if (on)
+        {
+            _audioOverlay?.ShowIfText();
+        }
+        else
+        {
+            _audioOverlay?.Hide();
         }
     }
 
@@ -492,11 +591,13 @@ public partial class App : Application
         {
             ov.ApplyConfig(Config);
         }
+        _audioOverlay?.ApplyConfig(Config);
 
         // sync tray checkmarks to the new config without firing their toggles
         _suppressToggle = true;
         if (_ocrItem != null) _ocrItem.Checked = Config.OcrEnabled;
         if (_overlayItem != null) _overlayItem.Checked = Config.OutputOverlay;
+        if (_listenItem != null) _listenItem.Checked = Config.AudioEnabled;
         _suppressToggle = false;
 
         // apply overlay visibility per the new output_overlay
@@ -505,6 +606,8 @@ public partial class App : Application
             if (Config.OutputOverlay) ov.ShowIfText();
             else ov.Hide();
         }
+        if (Config.OutputOverlay) _audioOverlay?.ShowIfText();
+        else _audioOverlay?.Hide();
 
         ApplyHotkeys(); // combos may have changed
 
@@ -531,6 +634,27 @@ public partial class App : Application
             StopPipeline();
             StartPipeline();
         }
+
+        // restart the audio pipeline if a setting it captured at start changed
+        bool audioKeysChanged =
+            old.WhisperModel != Config.WhisperModel ||
+            old.AudioUseTranslator != Config.AudioUseTranslator ||
+            (Config.AudioUseTranslator &&
+                (old.Translator != Config.Translator ||
+                 old.DeeplApiKey != Config.DeeplApiKey ||
+                 old.ServerUrl != Config.ServerUrl ||
+                 old.ServerModel != Config.ServerModel));
+
+        if (Config.AudioEnabled != old.AudioEnabled)
+        {
+            if (Config.AudioEnabled) StartAudioPipeline();
+            else StopAudioPipeline();
+        }
+        else if (Config.AudioEnabled && audioKeysChanged)
+        {
+            StopAudioPipeline();
+            StartAudioPipeline();
+        }
     }
 
     private void Notify(string msg)
@@ -543,11 +667,13 @@ public partial class App : Application
     protected override void OnExit(ExitEventArgs e)
     {
         StopPipeline();
+        StopAudioPipeline();
         _hotkeys?.Dispose();
         foreach (OverlayWindow ov in _overlays)
         {
             ov.Close();
         }
+        _audioOverlay?.Close();
         if (_tray != null)
         {
             _tray.Visible = false;

@@ -69,6 +69,12 @@ public sealed class AppConfig
     public int OverlayOrigFontSize { get; set; } = 12;    // original (JA), when shown
     public double OverlayOpacity { get; set; } = 0.85;
 
+    // Audio rolling-log overlay: how long a line stays before it expires (0 =
+    // keep until it scrolls off the top), and how tall the box may grow before
+    // oldest lines are dropped, as a percent of the work-area height.
+    public double AudioMessageSeconds { get; set; } = 0;
+    public int AudioOverlayMaxHeightPercent { get; set; } = 40;
+
     // Placement nudges (logical px) set by dragging in edit mode. OverlayOffsets
     // is PARALLEL to Regions; AudioOverlayOffset is from the bottom-center base.
     public List<int[]> OverlayOffsets { get; set; } = new();

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Interop;
@@ -30,6 +31,19 @@ public partial class OverlayWindow : Window
     private bool _editMode;
     private bool _showingPlaceholder;
 
+    // Rolling-log state (audio overlay only, i.e. region == null): accumulated
+    // translated lines (with arrival time), newest last; trimmed from the front
+    // when out of space or expired.
+    private const int MaxHistory = 60;
+    private readonly LinkedList<(string Text, DateTime At)> _history = new();
+    private double _maxHeightFrac = 0.4;   // of work-area height
+    private double _ttlSeconds;            // 0 = no expiry
+    private System.Windows.Threading.DispatcherTimer? _ttlTimer;
+
+    /// <summary>The region-less audio overlay behaves as a scrolling subtitle
+    /// log, bottom-anchored and growing upward. Region overlays replace in place.</summary>
+    private bool Rolling => _region == null;
+
     public bool HasText { get; private set; }
 
     /// <summary>Raised after a drag in edit mode with the new (dx, dy) offset.</summary>
@@ -42,7 +56,26 @@ public partial class OverlayWindow : Window
         _region = region;
         _offsetX = offsetX;
         _offsetY = offsetY;
+
+        if (Rolling)
+        {
+            _ttlTimer = new System.Windows.Threading.DispatcherTimer
+            {
+                Interval = TimeSpan.FromMilliseconds(500),
+            };
+            _ttlTimer.Tick += (_, _) => ExpireOldLines();
+        }
+
         ApplyConfig(cfg);
+
+        // rolling overlay grows/shrinks with content; keep its bottom edge anchored
+        SizeChanged += (_, _) =>
+        {
+            if (Rolling && _hwnd != IntPtr.Zero)
+            {
+                Place();
+            }
+        };
     }
 
     public void ApplyConfig(AppConfig cfg)
@@ -54,6 +87,20 @@ public partial class OverlayWindow : Window
         OrigText.FontSize = Math.Max(8, cfg.OverlayOrigFontSize);
         byte alpha = (byte)Math.Clamp((int)(cfg.OverlayOpacity * 255), 0, 255);
         Root.Background = new SolidColorBrush(Color.FromArgb(alpha, 10, 10, 10));
+
+        if (Rolling)
+        {
+            _maxHeightFrac = Math.Clamp(cfg.AudioOverlayMaxHeightPercent / 100.0, 0.1, 0.95);
+            _ttlSeconds = Math.Max(0, cfg.AudioMessageSeconds);
+            if (_ttlTimer != null)
+            {
+                _ttlTimer.IsEnabled = _ttlSeconds > 0;
+            }
+            if (HasText)
+            {
+                RenderRolling(); // re-trim to the new max height
+            }
+        }
         // apply show-original live to a box that's already on screen
         if (HasText)
         {
@@ -107,9 +154,11 @@ public partial class OverlayWindow : Window
             double w = Math.Max(280, _region.Width / s);
             return (x, y, w);
         }
+        // audio overlay: centred near the bottom; y is the BOTTOM-edge anchor so
+        // the box grows upward as lines accumulate.
         Rect wa = SystemParameters.WorkArea;
         double ww = wa.Width * 0.6;
-        return (wa.Left + ((wa.Width - ww) / 2), wa.Top + wa.Height - 160, ww);
+        return (wa.Left + ((wa.Width - ww) / 2), wa.Top + wa.Height - 60, ww);
     }
 
     private void Place()
@@ -117,7 +166,9 @@ public partial class OverlayWindow : Window
         (double x, double y, double w) = BasePosition();
         Width = w;
         Left = x + _offsetX;
-        Top = y + _offsetY;
+        // rolling: anchor the bottom edge (y + offset) so growth goes upward;
+        // region overlays: top-anchored just below the region.
+        Top = Rolling ? (y - ActualHeight + _offsetY) : (y + _offsetY);
     }
 
     public void ShowText(string original, string translated)
@@ -138,10 +189,103 @@ public partial class OverlayWindow : Window
         AssertTopmost();
     }
 
+    /// <summary>
+    /// Audio overlay: append a translated line to the rolling log. Fills downward
+    /// then scrolls — oldest lines drop off the top once the box would exceed its
+    /// max height. (Region overlays use <see cref="ShowText"/> instead.)
+    /// </summary>
+    public void AppendLine(string translated)
+    {
+        if (string.IsNullOrWhiteSpace(translated))
+        {
+            return;
+        }
+        HasText = true;
+        _showingPlaceholder = false;
+        _history.AddLast((translated.Trim(), DateTime.UtcNow));
+        while (_history.Count > MaxHistory)
+        {
+            _history.RemoveFirst();
+        }
+        RenderRolling();
+        if (!IsVisible)
+        {
+            Show();
+        }
+        SetClickThrough(!_editMode);
+        AssertTopmost();
+    }
+
+    private void RenderRolling()
+    {
+        OrigText.Visibility = Visibility.Collapsed; // EN-only in the rolling log
+        TransText.Text = JoinHistory();
+
+        // trim oldest lines until the text fits the configured max height.
+        // Measure at the current wrap width to account for line wrapping.
+        double maxH = SystemParameters.WorkArea.Height * _maxHeightFrac;
+        double availW = Math.Max(50, Width - 24); // minus Border padding
+        while (_history.Count > 1)
+        {
+            TransText.Measure(new Size(availW, double.PositiveInfinity));
+            if (TransText.DesiredSize.Height <= maxH)
+            {
+                break;
+            }
+            _history.RemoveFirst();
+            TransText.Text = JoinHistory();
+        }
+    }
+
+    private string JoinHistory()
+    {
+        var sb = new System.Text.StringBuilder();
+        foreach ((string text, DateTime _) in _history)
+        {
+            if (sb.Length > 0)
+            {
+                sb.Append('\n');
+            }
+            sb.Append(text);
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>Drops lines older than the configured TTL (timer-driven).</summary>
+    private void ExpireOldLines()
+    {
+        if (_ttlSeconds <= 0 || _history.Count == 0 || _editMode)
+        {
+            return;
+        }
+        DateTime cutoff = DateTime.UtcNow.AddSeconds(-_ttlSeconds);
+        bool changed = false;
+        while (_history.First is { } first && first.Value.At < cutoff)
+        {
+            _history.RemoveFirst();
+            changed = true;
+        }
+        if (!changed)
+        {
+            return;
+        }
+        if (_history.Count == 0)
+        {
+            HasText = false;
+            TransText.Text = string.Empty;
+            Hide();
+        }
+        else
+        {
+            RenderRolling();
+        }
+    }
+
     /// <summary>Dialogue left the screen — clear and hide. No-op during edit mode:
     /// the OCR loop keeps running, and a clear mid-drag would yank the box away.</summary>
     public void ClearText()
     {
+        _history.Clear();
         if (_editMode)
         {
             return;
@@ -223,7 +367,9 @@ public partial class OverlayWindow : Window
         DragMove(); // blocks until mouse-up
         (double bx, double by, double _) = BasePosition();
         _offsetX = (int)Math.Round(Left - bx);
-        _offsetY = (int)Math.Round(Top - by);
+        // rolling: store the bottom-edge delta so growth stays anchored where
+        // the user dropped it; region overlays store the top-edge delta.
+        _offsetY = (int)Math.Round((Rolling ? (Top + ActualHeight) : Top) - by);
         OffsetChanged?.Invoke(_offsetX, _offsetY);
     }
 

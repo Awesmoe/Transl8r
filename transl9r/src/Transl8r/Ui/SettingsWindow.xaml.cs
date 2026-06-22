@@ -48,6 +48,8 @@ public partial class SettingsWindow : Window
     private readonly TextBox _fontSize = new();
     private readonly TextBox _origFontSize = new();
     private readonly TextBox _opacity = new();
+    private readonly TextBox _audioMsgSeconds = new();
+    private readonly TextBox _audioMaxHeight = new();
     private readonly CheckBox _outTts = new();
     private readonly TextBox _ttsModel = new();
     private readonly TextBox _ttsVoices = new();
@@ -162,6 +164,10 @@ public partial class SettingsWindow : Window
         Row(g, "Original (JA) font size", _origFontSize,
             "Size of the original Japanese line. Only used when 'Show original JA text' is on.");
         Row(g, "Overlay background opacity", _opacity);
+        Row(g, "Audio log: line lifetime (s, 0 = keep)", _audioMsgSeconds,
+            "How long each audio subtitle line stays before it expires. 0 keeps lines until they scroll off the top.");
+        Row(g, "Audio log: max height (% of screen)", _audioMaxHeight,
+            "How tall the rolling audio overlay may grow before the oldest lines are dropped.");
         Row(g, "TTS (not yet wired)", _outTts);
         Row(g, "TTS model path", _ttsModel);
         Row(g, "TTS voices path", _ttsVoices);
@@ -204,6 +210,8 @@ public partial class SettingsWindow : Window
         _showOriginal.Checked += (_, _) => _origFontSize.IsEnabled = true;
         _showOriginal.Unchecked += (_, _) => _origFontSize.IsEnabled = false;
         _opacity.Text = Str(_cfg.OverlayOpacity);
+        _audioMsgSeconds.Text = Str(_cfg.AudioMessageSeconds);
+        _audioMaxHeight.Text = _cfg.AudioOverlayMaxHeightPercent.ToString(CultureInfo.InvariantCulture);
         _outTts.IsChecked = _cfg.OutputTts;
         _ttsModel.Text = _cfg.TtsModelPath;
         _ttsVoices.Text = _cfg.TtsVoicesPath;
@@ -242,6 +250,8 @@ public partial class SettingsWindow : Window
         c.OverlayFontSize = (int)Dbl(_fontSize.Text, c.OverlayFontSize);
         c.OverlayOrigFontSize = (int)Dbl(_origFontSize.Text, c.OverlayOrigFontSize);
         c.OverlayOpacity = Dbl(_opacity.Text, c.OverlayOpacity);
+        c.AudioMessageSeconds = Dbl(_audioMsgSeconds.Text, c.AudioMessageSeconds);
+        c.AudioOverlayMaxHeightPercent = (int)Dbl(_audioMaxHeight.Text, c.AudioOverlayMaxHeightPercent);
         c.OutputTts = _outTts.IsChecked == true;
         c.TtsModelPath = _ttsModel.Text.Trim();
         c.TtsVoicesPath = _ttsVoices.Text.Trim();
