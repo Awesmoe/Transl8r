@@ -28,6 +28,35 @@ internal static class AudioFile
             ? mono
             : new WdlResamplingSampleProvider(mono, WhisperTranscriber.SampleRate);
 
+        return ReadAll(src);
+    }
+
+    /// <summary>Resamples an in-memory mono buffer to 16 kHz (no-op if already 16 kHz).</summary>
+    public static float[] Resample16kMono(float[] mono, int srcRate)
+    {
+        if (srcRate == WhisperTranscriber.SampleRate || mono.Length == 0)
+        {
+            return mono;
+        }
+        var src = new WdlResamplingSampleProvider(
+            new FloatArraySampleProvider(mono, srcRate), WhisperTranscriber.SampleRate);
+        return ReadAll(src);
+    }
+
+    /// <summary>Writes mono float samples to a 16-bit PCM WAV (for diagnostics:
+    /// play it back to confirm capture fidelity — correct pitch/speed = clean
+    /// sample rate &amp; channel handling).</summary>
+    public static void WriteWavPcm16(string path, float[] mono, int sampleRate)
+    {
+        using var w = new WaveFileWriter(path, new WaveFormat(sampleRate, 16, 1));
+        foreach (float s in mono)
+        {
+            w.WriteSample(s); // converts float -> 16-bit PCM per the writer's format
+        }
+    }
+
+    private static float[] ReadAll(ISampleProvider src)
+    {
         var samples = new List<float>();
         var buf = new float[WhisperTranscriber.SampleRate]; // ~1s blocks
         int n;

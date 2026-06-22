@@ -105,8 +105,9 @@ public partial class App : Application
         menu.Items.Add("Add screen region", null, (_, _) => PickRegion(add: true));
 
         menu.Items.Add(new WinForms.ToolStripSeparator());
-        // Phase 3 smoke test: transcribe/translate an audio file (no live capture yet).
+        // Phase 3 smoke tests (no live pipeline yet).
         menu.Items.Add("Whisper: test on audio file…", null, (_, _) => TestWhisper());
+        menu.Items.Add("Audio: test loopback (record 5s)…", null, (_, _) => TestLoopback());
 
         menu.Items.Add(new WinForms.ToolStripSeparator());
         menu.Items.Add("Settings…", null, (_, _) => OpenSettings());
@@ -250,6 +251,73 @@ public partial class App : Application
         catch (Exception ex)
         {
             OnError($"Whisper test failed: {ex.Message}");
+        }
+    }
+
+    // Sub-step 2: capture a few seconds of system audio via WASAPI loopback and
+    // run it through Whisper — proves live capture + the resample path end to end.
+    private async void TestLoopback()
+    {
+        const int seconds = 5;
+        try
+        {
+            void Status(string m) => Dispatcher.BeginInvoke((Action)(() => OnStatus(m)));
+            Notify($"Recording {seconds}s of system audio — play something now.");
+
+            var (samples, device, format) = await Task.Run(() =>
+            {
+                using var cap = new AudioCapture();
+                var collected = new List<float>();
+                var gate = new object();
+                cap.BlockReady += block =>
+                {
+                    lock (gate) { collected.AddRange(block); }
+                };
+                cap.Start();
+                Thread.Sleep(seconds * 1000);
+                cap.Stop();
+                float[] mono;
+                lock (gate) { mono = collected.ToArray(); }
+                return (AudioFile.Resample16kMono(mono, cap.SampleRate), cap.DeviceName, cap.Format);
+            });
+
+            if (samples.Length == 0)
+            {
+                OnStatus("Loopback test: no audio captured.");
+                MessageBox.Show(
+                    $"No audio captured from \"{device}\".\n\n" +
+                    "WASAPI loopback only delivers data while something is playing — " +
+                    "make sure audio was actually playing on the default output device.",
+                    "Audio loopback test", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            // Dump the resampled 16 kHz mono so it can be played back to verify
+            // capture fidelity (wrong pitch/speed would mean a rate/channel bug).
+            string wavPath = System.IO.Path.Combine(AppContext.BaseDirectory, "last_capture_16k.wav");
+            try { AudioFile.WriteWavPcm16(wavPath, samples, WhisperTranscriber.SampleRate); }
+            catch { wavPath = "(could not write debug wav)"; }
+
+            float secs = samples.Length / (float)WhisperTranscriber.SampleRate;
+            Status($"Captured {secs:0.0}s from \"{device}\"; transcribing…");
+            string result = await Task.Run(async () =>
+            {
+                string model = await WhisperModelStore.EnsureAsync(Config.WhisperModel, Status);
+                using var tr = new WhisperTranscriber(model, translate: true);
+                return await tr.TranscribeAsync(samples);
+            });
+
+            OnStatus("Loopback test done.");
+            string body =
+                (string.IsNullOrWhiteSpace(result) ? "(no speech detected in the captured audio)" : result) +
+                $"\n\n---\nSource device: {device}\nCapture format: {format}\n" +
+                $"Captured: {secs:0.0}s -> 16 kHz mono\nDebug WAV (play to check fidelity): {wavPath}";
+            MessageBox.Show(body, "Loopback test — English",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            OnError($"Loopback test failed: {ex.Message}");
         }
     }
 
