@@ -43,6 +43,17 @@ public sealed class AppConfig
     // hallucinate captions ("thank you for watching") on music/silence.
     public bool AudioVad { get; set; } = true;
 
+    // Audio chunking (latency vs. translation-context tradeoff). Defaults match
+    // the former compile-time constants. A chunk flushes when it reaches Max
+    // seconds, or once it's at least Min seconds AND TailSilence seconds of quiet
+    // have followed. Lower Tail/Max = snappier output; lower Max also means less
+    // context per chunk (worse translations). SilenceThreshold is the RMS below
+    // which audio counts as silence.
+    public double AudioMinChunkSeconds { get; set; } = 2.0;
+    public double AudioMaxChunkSeconds { get; set; } = 8.0;
+    public double AudioTailSilenceSeconds { get; set; } = 0.6;
+    public double AudioSilenceThreshold { get; set; } = 0.01;
+
     // --- translation backend ------------------------------------------------
     public string Translator { get; set; } = "argos";
     public string DeeplApiKey { get; set; } = "";

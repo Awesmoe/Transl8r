@@ -20,11 +20,8 @@ namespace Transl8r.Core;
 /// </summary>
 internal sealed class AudioPipeline : BackgroundPipeline
 {
-    // chunking constants, ported from AudioWorker
-    private const float SilenceRms = 0.01f;
-    private const double MinChunkS = 2.0;
-    private const double MaxChunkS = 8.0;
-    private const double TailSilenceS = 0.6;
+    // polling granularity for the capture queue (not user-tunable). The chunking
+    // thresholds are now config (read into locals at Run start).
     private const int ReadTimeoutMs = 200;
 
     private readonly AppConfig _cfg;
@@ -40,6 +37,13 @@ internal sealed class AudioPipeline : BackgroundPipeline
         ITranslator? translator = null;
         AudioCapture? capture = null;
         var queue = new BlockingCollection<float[]>(new ConcurrentQueue<float[]>());
+
+        // chunking thresholds (config; snapshot for this run — Settings restarts
+        // the pipeline so changes take effect).
+        float silenceRms = (float)_cfg.AudioSilenceThreshold;
+        double minChunkS = _cfg.AudioMinChunkSeconds;
+        double maxChunkS = _cfg.AudioMaxChunkSeconds;
+        double tailSilenceS = _cfg.AudioTailSilenceSeconds;
 
         try
         {
@@ -92,7 +96,7 @@ internal sealed class AudioPipeline : BackgroundPipeline
                     buf.Add(block);
                     bufSamples += block.Length;
                     bufSumSq += sq;
-                    silentTail = blockRms < SilenceRms
+                    silentTail = blockRms < silenceRms
                         ? silentTail + block.Length / (double)sr
                         : 0.0;
                 }
@@ -106,7 +110,7 @@ internal sealed class AudioPipeline : BackgroundPipeline
 
                 // drop a tiny stale residual after prolonged silence so it can't
                 // get glued onto the next utterance across a long gap
-                if (bufLen > 0 && bufLen < MinChunkS && silentTail >= 2.0)
+                if (bufLen > 0 && bufLen < minChunkS && silentTail >= 2.0)
                 {
                     buf.Clear();
                     bufSamples = 0;
@@ -115,8 +119,8 @@ internal sealed class AudioPipeline : BackgroundPipeline
                     continue;
                 }
 
-                bool flush = bufLen >= MaxChunkS ||
-                             (bufLen >= MinChunkS && silentTail >= TailSilenceS);
+                bool flush = bufLen >= maxChunkS ||
+                             (bufLen >= minChunkS && silentTail >= tailSilenceS);
                 if (!flush)
                 {
                     continue;
@@ -129,7 +133,7 @@ internal sealed class AudioPipeline : BackgroundPipeline
                 bufSumSq = 0.0;
                 silentTail = 0.0;
 
-                if (chunkRms < SilenceRms)
+                if (chunkRms < silenceRms)
                 {
                     continue; // whole chunk is silence
                 }

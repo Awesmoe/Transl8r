@@ -36,6 +36,10 @@ public partial class SettingsWindow : Window
     private readonly ComboBox _whisperDevice = new();
     private readonly CheckBox _audioVad = new();
     private readonly CheckBox _audioUseTranslator = new();
+    private readonly TextBox _audioMinChunk = new();
+    private readonly TextBox _audioMaxChunk = new();
+    private readonly TextBox _audioTailSilence = new();
+    private readonly TextBox _audioSilenceRms = new();
 
     // Translation
     private readonly ComboBox _translator = new();
@@ -162,6 +166,22 @@ public partial class SettingsWindow : Window
             + "(DeepL/server) produces the English — usually better quality, and "
             + "required for 'Show original JA text' to work on audio. "
             + "OFF: Whisper translates the audio straight to English (faster, English only).");
+        Row(g, "Audio chunk: min length (s)", _audioMinChunk,
+            "Shortest audio buffered before a silence-triggered flush. Lower = short "
+            + "lines appear sooner, but very short fragments may be dropped. Default 2.");
+        Row(g, "Audio chunk: max length (s)", _audioMaxChunk,
+            "Force a flush after this many seconds of continuous speech (no pause). "
+            + "Lower = less waiting during non-stop talk/BGM, but less context per "
+            + "chunk means rougher translations. Default 8. This is the main latency "
+            + "knob now that the GPU makes transcription fast.");
+        Row(g, "Audio chunk: tail silence (s)", _audioTailSilence,
+            "How long the audio must go quiet (after at least 'min length') before a "
+            + "chunk is flushed. Lower = snappier after someone stops talking, but a "
+            + "brief pause mid-sentence may split it. Default 0.6.");
+        Row(g, "Audio silence threshold (RMS)", _audioSilenceRms,
+            "Audio quieter than this counts as silence (0–1). Raise if quiet speech is "
+            + "being treated as silence; lower if background noise never registers as a "
+            + "pause. Default 0.01.");
         return g;
     }
 
@@ -233,6 +253,10 @@ public partial class SettingsWindow : Window
         _whisperDevice.SelectedItem = _cfg.WhisperDevice;
         _audioVad.IsChecked = _cfg.AudioVad;
         _audioUseTranslator.IsChecked = _cfg.AudioUseTranslator;
+        _audioMinChunk.Text = Str(_cfg.AudioMinChunkSeconds);
+        _audioMaxChunk.Text = Str(_cfg.AudioMaxChunkSeconds);
+        _audioTailSilence.Text = Str(_cfg.AudioTailSilenceSeconds);
+        _audioSilenceRms.Text = Str(_cfg.AudioSilenceThreshold);
 
         _translator.SelectedItem = _cfg.Translator;
         _deeplKey.Password = _cfg.DeeplApiKey;
@@ -278,6 +302,10 @@ public partial class SettingsWindow : Window
         c.WhisperDevice = (string?)_whisperDevice.SelectedItem ?? c.WhisperDevice;
         c.AudioVad = _audioVad.IsChecked == true;
         c.AudioUseTranslator = _audioUseTranslator.IsChecked == true;
+        c.AudioMinChunkSeconds = Dbl(_audioMinChunk.Text, c.AudioMinChunkSeconds);
+        c.AudioMaxChunkSeconds = Dbl(_audioMaxChunk.Text, c.AudioMaxChunkSeconds);
+        c.AudioTailSilenceSeconds = Dbl(_audioTailSilence.Text, c.AudioTailSilenceSeconds);
+        c.AudioSilenceThreshold = Dbl(_audioSilenceRms.Text, c.AudioSilenceThreshold);
 
         c.Translator = (string?)_translator.SelectedItem ?? c.Translator;
         c.DeeplApiKey = _deeplKey.Password.Trim();
