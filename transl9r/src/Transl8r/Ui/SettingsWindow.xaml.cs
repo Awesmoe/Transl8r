@@ -129,16 +129,18 @@ public partial class SettingsWindow : Window
             "Fraction of pixels that must change before a frame is re-read (0.01 = 1%).");
         Row(g, "OCR backend", _ocrBackend,
             "C# build supports vlm-direct and vlm; manga-ocr/paddle fall back to vlm-direct.");
-        Row(g, "Paddle min confidence", _paddleConf);
+        Row(g, "Paddle min confidence (not wired)", _paddleConf,
+            "Paddle OCR isn't ported to C#; this value is currently unused.");
         Row(g, "VLM URL (OpenAI-compat)", _vlmUrl);
         Row(g, "VLM model name", _vlmModel);
         Row(g, "Hotkey: pick region (replace)", _hotkeyRegion);
         Row(g, "Hotkey: add region", _hotkeyAdd);
         Row(g, "Hotkey: toggle overlay", _hotkeyOverlay);
         Row(g, "Hotkey: edit positions", _hotkeyEdit);
-        Row(g, "Audio pipeline (not yet wired)", _audioEnabled);
+        Row(g, "Audio pipeline", _audioEnabled);
         Row(g, "Whisper model", _whisperModel);
-        Row(g, "Whisper device", _whisperDevice);
+        Row(g, "Whisper device (CPU only for now)", _whisperDevice,
+            "GPU/CUDA runtime isn't wired yet; transcription runs on CPU regardless of this setting.");
         Row(g, "Voice activity detection (skip non-speech)", _audioVad,
             "Uses Silero VAD to drop chunks with no speech, preventing Whisper from " +
             "hallucinating captions on music/silence (\"thank you for watching\").");
@@ -172,11 +174,13 @@ public partial class SettingsWindow : Window
             "How long each audio subtitle line stays before it expires. 0 keeps lines until they scroll off the top.");
         Row(g, "Audio log: max height (% of screen)", _audioMaxHeight,
             "How tall the rolling audio overlay may grow before the oldest lines are dropped.");
-        Row(g, "TTS (not yet wired)", _outTts);
+        Row(g, "TTS (not wired)", _outTts,
+            "Text-to-speech output is deferred (Phase 4); these fields have no effect yet.");
         Row(g, "TTS model path", _ttsModel);
         Row(g, "TTS voices path", _ttsVoices);
         Row(g, "TTS voice", _ttsVoice);
-        Row(g, "Write to file", _outFile);
+        Row(g, "Write to file (not wired)", _outFile,
+            "Writing translations to a log file isn't ported yet; this has no effect.");
         Row(g, "File path", _filePath);
         return g;
     }
