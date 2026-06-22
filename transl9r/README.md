@@ -6,7 +6,7 @@ vision model and draws the English translation in a click-through overlay on top
 
 This is a native **C# / WPF (.NET 8)** rewrite of the original Python/PySide6
 `transl8r`. (The product is still "transl8r"; `transl9r` is just the rewrite
-folder — the Python version lives on the `main` branch.)
+folder — the deprecated Python prototype now lives in [`../legacy-python`](../legacy-python).)
 
 ## Features
 
@@ -26,7 +26,11 @@ folder — the Python version lives on the `main` branch.)
   with its own independent font size.
 - **System-tray control**, **global hotkeys**, and a **tabbed settings dialog**.
 
-Planned: audio pipeline (system audio → Whisper) and TTS output.
+- **System audio → overlay** — WASAPI loopback → Whisper as a rolling subtitle
+  log; either Whisper-direct English, or transcribe JA and route through a
+  separate translator. Optional Silero VAD to drop non-speech.
+
+Planned: TTS output.
 
 ## Requirements
 
@@ -100,5 +104,5 @@ to Ollama's Go syntax. (This was hit with Tencent's `Hy-MT2-1.8B-GGUF`.)
 
 ## Status
 
-The screen-OCR feature set is complete and validated on real Windows. Audio input
-and TTS are not yet implemented.
+Screen-OCR and system-audio pipelines are complete and validated on real Windows.
+TTS output is not yet implemented (still only in the Python prototype).
