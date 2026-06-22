@@ -144,7 +144,11 @@ public partial class SettingsWindow : Window
         Row(g, "Voice activity detection (skip non-speech)", _audioVad,
             "Uses Silero VAD to drop chunks with no speech, preventing Whisper from " +
             "hallucinating captions on music/silence (\"thank you for watching\").");
-        Row(g, "Audio: transcribe then translate", _audioUseTranslator);
+        Row(g, "Whisper: transcribe, then translate separately", _audioUseTranslator,
+            "ON: Whisper transcribes the Japanese, then your Translation backend "
+            + "(DeepL/server) produces the English — usually better quality, and "
+            + "required for 'Show original JA text' to work on audio. "
+            + "OFF: Whisper translates the audio straight to English (faster, English only).");
         return g;
     }
 
@@ -165,7 +169,10 @@ public partial class SettingsWindow : Window
     {
         var g = NewForm();
         Row(g, "Overlay", _outOverlay);
-        Row(g, "Show original JA text", _showOriginal);
+        Row(g, "Show original JA text", _showOriginal,
+            "Shows the original Japanese above each translation. For audio output this "
+            + "requires 'Whisper: transcribe, then translate separately' (Input tab) to be "
+            + "on — otherwise Whisper outputs English directly and there is no JA transcript.");
         Row(g, "Translation font size", _fontSize);
         Row(g, "Original (JA) font size", _origFontSize,
             "Size of the original Japanese line. Only used when 'Show original JA text' is on.");
@@ -179,9 +186,11 @@ public partial class SettingsWindow : Window
         Row(g, "TTS model path", _ttsModel);
         Row(g, "TTS voices path", _ttsVoices);
         Row(g, "TTS voice", _ttsVoice);
-        Row(g, "Write to file (not wired)", _outFile,
-            "Writing translations to a log file isn't ported yet; this has no effect.");
-        Row(g, "File path", _filePath);
+        Row(g, "Write to file", _outFile,
+            "Append each translation to a log file: \"[HH:MM:SS] original => translation\". "
+            + "Applies to both screen-OCR and audio output.");
+        Row(g, "File path", _filePath,
+            "Where to append. Relative paths are resolved from the app's working directory.");
         return g;
     }
 

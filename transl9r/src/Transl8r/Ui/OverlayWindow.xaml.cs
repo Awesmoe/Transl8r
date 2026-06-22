@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Windows;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -35,7 +36,7 @@ public partial class OverlayWindow : Window
     // translated lines (with arrival time), newest last; trimmed from the front
     // when out of space or expired.
     private const int MaxHistory = 60;
-    private readonly LinkedList<(string Text, DateTime At)> _history = new();
+    private readonly LinkedList<(string Ja, string En, DateTime At)> _history = new();
     private double _maxHeightFrac = 0.4;   // of work-area height
     private double _ttlSeconds;            // 0 = no expiry
     private System.Windows.Threading.DispatcherTimer? _ttlTimer;
@@ -190,11 +191,13 @@ public partial class OverlayWindow : Window
     }
 
     /// <summary>
-    /// Audio overlay: append a translated line to the rolling log. Fills downward
-    /// then scrolls — oldest lines drop off the top once the box would exceed its
-    /// max height. (Region overlays use <see cref="ShowText"/> instead.)
+    /// Audio overlay: append a line to the rolling log. Fills downward then
+    /// scrolls — oldest lines drop off the top once the box would exceed its max
+    /// height. <paramref name="ja"/> is the original transcription (shown above the
+    /// translation when ShowOriginal is on; pass "" if unavailable). (Region
+    /// overlays use <see cref="ShowText"/> instead.)
     /// </summary>
-    public void AppendLine(string translated)
+    public void AppendLine(string ja, string translated)
     {
         if (string.IsNullOrWhiteSpace(translated))
         {
@@ -202,7 +205,7 @@ public partial class OverlayWindow : Window
         }
         HasText = true;
         _showingPlaceholder = false;
-        _history.AddLast((translated.Trim(), DateTime.UtcNow));
+        _history.AddLast((ja?.Trim() ?? string.Empty, translated.Trim(), DateTime.UtcNow));
         while (_history.Count > MaxHistory)
         {
             _history.RemoveFirst();
@@ -218,10 +221,13 @@ public partial class OverlayWindow : Window
 
     private void RenderRolling()
     {
-        OrigText.Visibility = Visibility.Collapsed; // EN-only in the rolling log
-        TransText.Text = JoinHistory();
+        // The rolling log paints everything into TransText (the stacked OrigText is
+        // only for region overlays). When ShowOriginal is on we render each entry
+        // as a smaller blue JA line above its EN translation, via inline Runs.
+        OrigText.Visibility = Visibility.Collapsed;
+        RenderHistory();
 
-        // trim oldest lines until the text fits the configured max height.
+        // trim oldest lines until the content fits the configured max height.
         // Measure at the current wrap width to account for line wrapping.
         double maxH = SystemParameters.WorkArea.Height * _maxHeightFrac;
         double availW = Math.Max(50, Width - 24); // minus Border padding
@@ -233,20 +239,50 @@ public partial class OverlayWindow : Window
                 break;
             }
             _history.RemoveFirst();
-            TransText.Text = JoinHistory();
+            RenderHistory();
+        }
+    }
+
+    /// <summary>Paints the current history into TransText: plain EN text, or, when
+    /// ShowOriginal is on, a smaller blue JA line above each EN line via Runs.</summary>
+    private void RenderHistory()
+    {
+        if (!_cfg.ShowOriginal)
+        {
+            TransText.Text = JoinHistory(); // setting Text clears any inlines
+            return;
+        }
+
+        TransText.Inlines.Clear();
+        double jaSize = Math.Max(8, _cfg.OverlayOrigFontSize);
+        Brush jaBrush = OrigText.Foreground;
+        bool first = true;
+        foreach ((string ja, string en, DateTime _) in _history)
+        {
+            if (!first)
+            {
+                TransText.Inlines.Add(new LineBreak());
+            }
+            first = false;
+            if (ja.Length > 0)
+            {
+                TransText.Inlines.Add(new Run(ja) { FontSize = jaSize, Foreground = jaBrush });
+                TransText.Inlines.Add(new LineBreak());
+            }
+            TransText.Inlines.Add(new Run(en)); // inherits TransText size/colour
         }
     }
 
     private string JoinHistory()
     {
         var sb = new System.Text.StringBuilder();
-        foreach ((string text, DateTime _) in _history)
+        foreach ((string _, string en, DateTime _) in _history)
         {
             if (sb.Length > 0)
             {
                 sb.Append('\n');
             }
-            sb.Append(text);
+            sb.Append(en);
         }
         return sb.ToString();
     }
