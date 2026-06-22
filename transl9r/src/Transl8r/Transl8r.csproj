@@ -27,7 +27,17 @@
   <ItemGroup>
     <PackageReference Include="NAudio" Version="2.3.0" />
     <PackageReference Include="Whisper.net" Version="1.9.1" />
+    <!-- CPU runtime is always present (fallback, and the only one in the public
+         release). -->
     <PackageReference Include="Whisper.net.Runtime" Version="1.9.1" />
+  </ItemGroup>
+
+  <!-- CUDA (NVIDIA) GPU runtime for Whisper. Included by default so local builds
+       get GPU acceleration; the public release is published with
+       `-p:EnableCuda=false` to drop the ~1GB CUDA libs (it then falls back to the
+       CPU runtime automatically). Requires an NVIDIA GPU + recent driver. -->
+  <ItemGroup Condition="'$(EnableCuda)' != 'false'">
+    <PackageReference Include="Whisper.net.Runtime.Cuda" Version="1.9.1" />
   </ItemGroup>
 
 </Project>

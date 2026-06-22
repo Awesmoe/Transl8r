@@ -15,6 +15,11 @@ namespace Transl8r.Audio;
 /// directly, mirroring faster-whisper's task="translate"). translate=false just
 /// transcribes in the source language, for the "transcribe then external
 /// translator" path (audio_use_translator).
+///
+/// device selects the compute backend (config whisper_device): "cpu" forces CPU;
+/// "cuda"/"auto" request the GPU. GPU only actually engages if a GPU runtime is
+/// bundled (Whisper.net.Runtime.Cuda) and a compatible NVIDIA GPU is present —
+/// otherwise whisper.cpp falls back to CPU on its own.
 /// </summary>
 internal sealed class WhisperTranscriber : IDisposable
 {
@@ -23,9 +28,13 @@ internal sealed class WhisperTranscriber : IDisposable
     private readonly WhisperFactory _factory;
     private readonly WhisperProcessor _processor;
 
-    public WhisperTranscriber(string modelPath, bool translate, string language = "ja")
+    /// <summary>True when GPU was requested (cpu was not explicitly selected).</summary>
+    public bool GpuRequested { get; }
+
+    public WhisperTranscriber(string modelPath, bool translate, string device = "auto", string language = "ja")
     {
-        _factory = WhisperFactory.FromPath(modelPath);
+        GpuRequested = !string.Equals(device, "cpu", StringComparison.OrdinalIgnoreCase);
+        _factory = WhisperFactory.FromPath(modelPath, new WhisperFactoryOptions { UseGpu = GpuRequested });
         WhisperProcessorBuilder builder = _factory.CreateBuilder()
             .WithLanguage(language)
             .WithNoContext(); // independent chunks: don't let one bleed into the next

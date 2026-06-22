@@ -48,11 +48,12 @@ internal sealed class AudioPipeline : BackgroundPipeline
             bool useExternal = _cfg.AudioUseTranslator;
             translator = useExternal ? TranslatorFactory.Build(_cfg) : null;
 
-            ReportStatus($"Loading Whisper '{_cfg.WhisperModel}'…");
+            bool wantGpu = !string.Equals(_cfg.WhisperDevice, "cpu", StringComparison.OrdinalIgnoreCase);
+            ReportStatus($"Loading Whisper '{_cfg.WhisperModel}' on {(wantGpu ? "GPU" : "CPU")}…");
             string model = WhisperModelStore
                 .EnsureAsync(_cfg.WhisperModel, ReportStatus, token)
                 .GetAwaiter().GetResult();
-            whisper = new WhisperTranscriber(model, translate: translator == null);
+            whisper = new WhisperTranscriber(model, translate: translator == null, device: _cfg.WhisperDevice);
 
             if (_cfg.AudioVad)
             {

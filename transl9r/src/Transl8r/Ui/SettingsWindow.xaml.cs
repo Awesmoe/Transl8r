@@ -150,8 +150,10 @@ public partial class SettingsWindow : Window
         Row(g, "Hotkey: edit positions", _hotkeyEdit);
         Row(g, "Audio pipeline", _audioEnabled);
         Row(g, "Whisper model", _whisperModel);
-        Row(g, "Whisper device (CPU only for now)", _whisperDevice,
-            "GPU/CUDA runtime isn't wired yet; transcription runs on CPU regardless of this setting.");
+        Row(g, "Whisper device", _whisperDevice,
+            "cpu: force CPU. cuda/auto: use the GPU if available. GPU acceleration "
+            + "needs an NVIDIA card and a CUDA-enabled build (the public release is "
+            + "CPU-only to keep the download small — it falls back to CPU here).");
         Row(g, "Voice activity detection (skip non-speech)", _audioVad,
             "Uses Silero VAD to drop chunks with no speech, preventing Whisper from " +
             "hallucinating captions on music/silence (\"thank you for watching\").");
