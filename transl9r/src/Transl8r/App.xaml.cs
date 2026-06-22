@@ -27,6 +27,7 @@ public partial class App : Application
     private bool _ownsMutex;
 
     private WinForms.NotifyIcon? _tray;
+    private System.Drawing.Icon? _trayIcon;
     private WinForms.ToolStripMenuItem? _ocrItem;
     private WinForms.ToolStripMenuItem? _overlayItem;
     private WinForms.ToolStripMenuItem? _editItem;
@@ -81,9 +82,10 @@ public partial class App : Application
 
     private void BuildTray()
     {
+        _trayIcon = Ui.TrayIconFactory.BuildEight();
         _tray = new WinForms.NotifyIcon
         {
-            Icon = System.Drawing.SystemIcons.Application, // placeholder
+            Icon = _trayIcon,
             Text = "transl8r",
             Visible = true,
         };
@@ -574,6 +576,7 @@ public partial class App : Application
             _tray.Visible = false;
             _tray.Dispose();
         }
+        _trayIcon?.Dispose();
         if (_ownsMutex)
         {
             _instanceMutex?.ReleaseMutex();
