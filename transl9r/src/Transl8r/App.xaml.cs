@@ -2,7 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
+using Transl8r.Audio;
 using Transl8r.Config;
 using Transl8r.Core;
 using Transl8r.Interop;
@@ -101,6 +103,10 @@ public partial class App : Application
         menu.Items.Add(new WinForms.ToolStripSeparator());
         menu.Items.Add("Select screen region…", null, (_, _) => PickRegion(add: false));
         menu.Items.Add("Add screen region", null, (_, _) => PickRegion(add: true));
+
+        menu.Items.Add(new WinForms.ToolStripSeparator());
+        // Phase 3 smoke test: transcribe/translate an audio file (no live capture yet).
+        menu.Items.Add("Whisper: test on audio file…", null, (_, _) => TestWhisper());
 
         menu.Items.Add(new WinForms.ToolStripSeparator());
         menu.Items.Add("Settings…", null, (_, _) => OpenSettings());
@@ -204,6 +210,47 @@ public partial class App : Application
     {
         _pipeline?.Stop();
         _pipeline = null;
+    }
+
+    // --------------------------------------------------------------- whisper test
+    // Sub-step 1 of the audio pipeline: prove the Whisper.net engine + model
+    // download work on a known file, before we touch live loopback capture.
+
+    private async void TestWhisper()
+    {
+        using var ofd = new WinForms.OpenFileDialog
+        {
+            Title = "Pick an audio file to transcribe (JA → EN)",
+            Filter = "Audio files|*.wav;*.mp3;*.m4a;*.flac;*.ogg;*.aac|All files|*.*",
+        };
+        if (ofd.ShowDialog() != WinForms.DialogResult.OK)
+        {
+            return;
+        }
+        string file = ofd.FileName;
+
+        try
+        {
+            void Status(string m) => Dispatcher.BeginInvoke((Action)(() => OnStatus(m)));
+            string result = await Task.Run(async () =>
+            {
+                string model = await WhisperModelStore.EnsureAsync(Config.WhisperModel, Status);
+                Status("Loading Whisper…");
+                using var tr = new WhisperTranscriber(model, translate: true);
+                Status("Transcribing…");
+                float[] samples = AudioFile.Load16kMono(file);
+                return await tr.TranscribeAsync(samples);
+            });
+
+            OnStatus("Whisper test done.");
+            MessageBox.Show(
+                string.IsNullOrWhiteSpace(result) ? "(no speech detected)" : result,
+                "Whisper test — English", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            OnError($"Whisper test failed: {ex.Message}");
+        }
     }
 
     // --------------------------------------------------------------- region picker
