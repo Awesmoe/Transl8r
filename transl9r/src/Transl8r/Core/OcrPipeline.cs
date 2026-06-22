@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Threading;
-using System.Threading.Tasks;
 using Transl8r.Capture;
 using Transl8r.Config;
 using Transl8r.Imaging;
@@ -18,7 +17,7 @@ namespace Transl8r.Core;
 /// CancellationToken (HANDOVER #4). Events fire on the worker thread — the
 /// caller marshals to the UI thread.
 /// </summary>
-internal sealed class OcrPipeline
+internal sealed class OcrPipeline : BackgroundPipeline
 {
     private sealed class RegionState
     {
@@ -30,13 +29,9 @@ internal sealed class OcrPipeline
 
     private readonly AppConfig _cfg;
     private readonly IReadOnlyList<Region> _regions;
-    private CancellationTokenSource? _cts;
-    private Task? _task;
 
     public event Action<int, string, string>? TextReady;  // region idx, ja, en
     public event Action<int>? TextCleared;                 // region idx
-    public event Action<string>? Status;
-    public event Action<string>? Error;
 
     public OcrPipeline(AppConfig cfg)
     {
@@ -44,26 +39,11 @@ internal sealed class OcrPipeline
         _regions = cfg.Regions;
     }
 
-    public bool IsRunning => _task is { IsCompleted: false };
-
-    public void Start()
-    {
-        if (IsRunning)
-        {
-            return;
-        }
-        _cts = new CancellationTokenSource();
-        CancellationToken token = _cts.Token;
-        _task = Task.Run(() => Run(token), token);
-    }
-
-    public void Stop() => _cts?.Cancel();
-
-    private void Run(CancellationToken token)
+    protected override void Run(CancellationToken token)
     {
         if (_regions.Count == 0)
         {
-            Error?.Invoke("No screen region selected.");
+            ReportError("No screen region selected.");
             return;
         }
 
@@ -73,16 +53,16 @@ internal sealed class OcrPipeline
             processor = OcrBackendFactory.Build(_cfg, out string? note);
             if (note != null)
             {
-                Status?.Invoke(note);
+                ReportStatus(note);
             }
         }
         catch (Exception ex)
         {
-            Error?.Invoke($"OCR pipeline init failed: {ex.Message}");
+            ReportError($"OCR pipeline init failed: {ex.Message}");
             return;
         }
 
-        Status?.Invoke($"OCR running ({_cfg.OcrBackend}, {_regions.Count} region{(_regions.Count > 1 ? "s" : "")})");
+        ReportStatus($"OCR running ({_cfg.OcrBackend}, {_regions.Count} region{(_regions.Count > 1 ? "s" : "")})");
         double poll = _cfg.PollInterval;
         double ratio = _cfg.FrameChangeRatio;
 
@@ -150,7 +130,7 @@ internal sealed class OcrPipeline
                 }
                 catch (Exception ex)
                 {
-                    Error?.Invoke($"OCR loop error: {ex.Message}");
+                    ReportError($"OCR loop error: {ex.Message}");
                     Wait(2000, token);
                 }
             }

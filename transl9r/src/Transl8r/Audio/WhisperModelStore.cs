@@ -33,55 +33,58 @@ internal static class WhisperModelStore
     /// <paramref name="status"/> is invoked with human-readable progress notes
     /// (download can be hundreds of MB the first time).
     /// </summary>
-    public static async Task<string> EnsureAsync(
+    public static Task<string> EnsureAsync(
         string? modelName, Action<string>? status, CancellationToken ct = default)
     {
         GgmlType type = MapType(modelName);
-        Directory.CreateDirectory(ModelsDir);
         string path = Path.Combine(ModelsDir, $"ggml-{type}.bin".ToLowerInvariant());
-
-        if (File.Exists(path) && new FileInfo(path).Length > 0)
-        {
-            return path;
-        }
-
-        status?.Invoke($"Downloading Whisper model '{type}' (one-time, this can take a while)…");
-        using Stream src = await WhisperGgmlDownloader.Default
-            .GetGgmlModelAsync(type, QuantizationType.NoQuantization, ct);
-
-        // download to a .part file then move, so an interrupted download doesn't
-        // leave a truncated file that looks valid next time
-        string tmp = path + ".part";
-        using (FileStream dst = File.Create(tmp))
-        {
-            await src.CopyToAsync(dst, ct);
-        }
-        File.Move(tmp, path, overwrite: true);
-        status?.Invoke($"Whisper model '{type}' ready.");
-        return path;
+        return DownloadOnceAsync(
+            path,
+            c => WhisperGgmlDownloader.Default.GetGgmlModelAsync(type, QuantizationType.NoQuantization, c),
+            $"Downloading Whisper model '{type}' (one-time, this can take a while)…",
+            $"Whisper model '{type}' ready.",
+            status, ct);
     }
 
     /// <summary>Returns the path to the Silero VAD model, downloading it once
     /// (~2 MB) if needed.</summary>
-    public static async Task<string> EnsureVadAsync(Action<string>? status, CancellationToken ct = default)
+    public static Task<string> EnsureVadAsync(Action<string>? status, CancellationToken ct = default)
     {
         const SileroVadType type = SileroVadType.V5_1_2;
-        Directory.CreateDirectory(ModelsDir);
         string path = Path.Combine(ModelsDir, $"ggml-silero-{type}.bin".ToLowerInvariant());
+        return DownloadOnceAsync(
+            path,
+            c => WhisperGgmlDownloader.Default.GetGgmlSileroVadModelAsync(type, c),
+            "Downloading Silero VAD model (one-time)…",
+            doneMsg: null,
+            status, ct);
+    }
 
+    /// <summary>Shared download-if-missing: skip if the file already exists and is
+    /// non-empty, otherwise fetch to a ".part" file and atomically move into place
+    /// (so an interrupted download can't leave a truncated file that looks valid).</summary>
+    private static async Task<string> DownloadOnceAsync(
+        string path, Func<CancellationToken, Task<Stream>> fetch,
+        string startMsg, string? doneMsg, Action<string>? status, CancellationToken ct)
+    {
+        Directory.CreateDirectory(ModelsDir);
         if (File.Exists(path) && new FileInfo(path).Length > 0)
         {
             return path;
         }
 
-        status?.Invoke("Downloading Silero VAD model (one-time)…");
-        using Stream src = await WhisperGgmlDownloader.Default.GetGgmlSileroVadModelAsync(type, ct);
+        status?.Invoke(startMsg);
+        using Stream src = await fetch(ct);
         string tmp = path + ".part";
         using (FileStream dst = File.Create(tmp))
         {
             await src.CopyToAsync(dst, ct);
         }
         File.Move(tmp, path, overwrite: true);
+        if (doneMsg != null)
+        {
+            status?.Invoke(doneMsg);
+        }
         return path;
     }
 }

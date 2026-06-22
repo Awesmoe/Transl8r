@@ -33,8 +33,8 @@ public partial class App : Application
 
     private WinForms.ToolStripMenuItem? _listenItem;
 
-    private readonly List<OverlayWindow> _overlays = new();
-    private OverlayWindow? _audioOverlay; // single, region-less (bottom-center)
+    private readonly List<RegionOverlay> _overlays = new();
+    private RollingOverlay? _audioOverlay; // single, region-less (bottom-center)
     private OcrPipeline? _pipeline;
     private AudioPipeline? _audioPipeline;
     private GlobalHotkeys? _hotkeys;
@@ -149,7 +149,7 @@ public partial class App : Application
                 dy = o[1];
             }
             int idx = i;
-            var ov = new OverlayWindow(Config, Config.Regions[i], dx, dy);
+            var ov = new RegionOverlay(Config, Config.Regions[i], dx, dy);
             ov.OffsetChanged += (ndx, ndy) => SaveOverlayOffset(idx, ndx, ndy);
             if (_editItem?.Checked == true)
             {
@@ -167,7 +167,7 @@ public partial class App : Application
             dx = o[0];
             dy = o[1];
         }
-        _audioOverlay = new OverlayWindow(Config, region: null, dx, dy);
+        _audioOverlay = new RollingOverlay(Config, dx, dy);
         _audioOverlay.OffsetChanged += SaveAudioOverlayOffset;
         if (_editItem?.Checked == true)
         {

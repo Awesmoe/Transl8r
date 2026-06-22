@@ -72,6 +72,13 @@ public sealed class AppConfig
     public int OverlayOrigFontSize { get; set; } = 12;    // original (JA), when shown
     public double OverlayOpacity { get; set; } = 0.85;
 
+    // Exclude the overlay windows from screen capture (SetWindowDisplayAffinity /
+    // WDA_EXCLUDEFROMCAPTURE). Stops one region's OCR from reading another
+    // overlay's on-screen text and re-translating it (the self-capture feedback
+    // loop). Default on; turn off to make the overlays show up in screenshots /
+    // screen recordings. Needs Windows 10 build 2004+ (Win11 has it).
+    public bool ExcludeOverlayFromCapture { get; set; } = true;
+
     // Audio rolling-log overlay: how long a line stays before it expires (0 =
     // keep until it scrolls off the top), and how tall the box may grow before
     // oldest lines are dropped, as a percent of the work-area height.

@@ -23,6 +23,13 @@ internal static class NativeMethods
     public const int WM_HOTKEY = 0x0312;
     public const uint MOD_NOREPEAT = 0x4000;
 
+    // SetWindowDisplayAffinity: exclude a window from screen capture so our own
+    // overlays don't get OCR'd back in (the self-capture feedback loop). Visible
+    // to the user, invisible to BitBlt/CopyFromScreen and other capture APIs.
+    // WDA_EXCLUDEFROMCAPTURE needs Windows 10 build 19041 (2004) or newer.
+    public const uint WDA_NONE = 0x00000000;
+    public const uint WDA_EXCLUDEFROMCAPTURE = 0x00000011;
+
     [DllImport("user32.dll", SetLastError = true)]
     public static extern int GetWindowLong(IntPtr hWnd, int nIndex);
 
@@ -44,4 +51,8 @@ internal static class NativeMethods
 
     [DllImport("user32.dll")]
     public static extern uint GetDpiForWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool SetWindowDisplayAffinity(IntPtr hWnd, uint dwAffinity);
 }

@@ -2,7 +2,6 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
-using System.Threading.Tasks;
 using Transl8r.Audio;
 using Transl8r.Config;
 using Transl8r.Translation;
@@ -19,7 +18,7 @@ namespace Transl8r.Core;
 /// while nothing is playing, so the "trailing silence" flush is driven by a
 /// read timeout (absence of audio == silence), not by quiet sample blocks.
 /// </summary>
-internal sealed class AudioPipeline
+internal sealed class AudioPipeline : BackgroundPipeline
 {
     // chunking constants, ported from AudioWorker
     private const float SilenceRms = 0.01f;
@@ -29,31 +28,12 @@ internal sealed class AudioPipeline
     private const int ReadTimeoutMs = 200;
 
     private readonly AppConfig _cfg;
-    private CancellationTokenSource? _cts;
-    private Task? _task;
 
     public event Action<string, string>? TextReady; // ja (or ""), en
-    public event Action<string>? Status;
-    public event Action<string>? Error;
 
     public AudioPipeline(AppConfig cfg) => _cfg = cfg;
 
-    public bool IsRunning => _task is { IsCompleted: false };
-
-    public void Start()
-    {
-        if (IsRunning)
-        {
-            return;
-        }
-        _cts = new CancellationTokenSource();
-        CancellationToken token = _cts.Token;
-        _task = Task.Run(() => Run(token), token);
-    }
-
-    public void Stop() => _cts?.Cancel();
-
-    private void Run(CancellationToken token)
+    protected override void Run(CancellationToken token)
     {
         WhisperTranscriber? whisper = null;
         VadGate? vad = null;
@@ -68,17 +48,17 @@ internal sealed class AudioPipeline
             bool useExternal = _cfg.AudioUseTranslator;
             translator = useExternal ? TranslatorFactory.Build(_cfg) : null;
 
-            Status?.Invoke($"Loading Whisper '{_cfg.WhisperModel}'…");
+            ReportStatus($"Loading Whisper '{_cfg.WhisperModel}'…");
             string model = WhisperModelStore
-                .EnsureAsync(_cfg.WhisperModel, m => Status?.Invoke(m), token)
+                .EnsureAsync(_cfg.WhisperModel, ReportStatus, token)
                 .GetAwaiter().GetResult();
             whisper = new WhisperTranscriber(model, translate: translator == null);
 
             if (_cfg.AudioVad)
             {
-                Status?.Invoke("Loading voice-activity detection…");
+                ReportStatus("Loading voice-activity detection…");
                 string vadModel = WhisperModelStore
-                    .EnsureVadAsync(m => Status?.Invoke(m), token)
+                    .EnsureVadAsync(ReportStatus, token)
                     .GetAwaiter().GetResult();
                 vad = new VadGate(vadModel);
             }
@@ -93,19 +73,25 @@ internal sealed class AudioPipeline
             };
             int sr = capture.SampleRate;
             capture.Start();
-            Status?.Invoke($"Listening to: {capture.DeviceName}");
+            ReportStatus($"Listening to: {capture.DeviceName}");
 
             var buf = new List<float[]>();
             int bufSamples = 0;
+            double bufSumSq = 0.0; // running Σ(sample²) over buf, for the chunk RMS
             double silentTail = 0.0;
 
             while (!token.IsCancellationRequested)
             {
                 if (queue.TryTake(out float[]? block, ReadTimeoutMs, token))
                 {
+                    // one scan per block: feeds both the per-block silence decision
+                    // and the accumulated whole-chunk RMS (no second pass at flush).
+                    double sq = SumSquares(block);
+                    double blockRms = Math.Sqrt(sq / block.Length);
                     buf.Add(block);
                     bufSamples += block.Length;
-                    silentTail = Rms(block) < SilenceRms
+                    bufSumSq += sq;
+                    silentTail = blockRms < SilenceRms
                         ? silentTail + block.Length / (double)sr
                         : 0.0;
                 }
@@ -123,6 +109,7 @@ internal sealed class AudioPipeline
                 {
                     buf.Clear();
                     bufSamples = 0;
+                    bufSumSq = 0.0;
                     silentTail = 0.0;
                     continue;
                 }
@@ -134,12 +121,14 @@ internal sealed class AudioPipeline
                     continue;
                 }
 
+                double chunkRms = bufSamples > 0 ? Math.Sqrt(bufSumSq / bufSamples) : 0.0;
                 float[] chunk = Concat(buf, bufSamples);
                 buf.Clear();
                 bufSamples = 0;
+                bufSumSq = 0.0;
                 silentTail = 0.0;
 
-                if (Rms(chunk) < SilenceRms)
+                if (chunkRms < SilenceRms)
                 {
                     continue; // whole chunk is silence
                 }
@@ -175,7 +164,7 @@ internal sealed class AudioPipeline
         }
         catch (Exception ex)
         {
-            Error?.Invoke($"Audio pipeline error: {ex.Message}");
+            ReportError($"Audio pipeline error: {ex.Message}");
         }
         finally
         {
@@ -187,18 +176,14 @@ internal sealed class AudioPipeline
         }
     }
 
-    private static float Rms(float[] samples)
+    private static double SumSquares(float[] samples)
     {
-        if (samples.Length == 0)
-        {
-            return 0f;
-        }
         double sum = 0;
         for (int i = 0; i < samples.Length; i++)
         {
             sum += (double)samples[i] * samples[i];
         }
-        return (float)Math.Sqrt(sum / samples.Length);
+        return sum;
     }
 
     private static float[] Concat(List<float[]> blocks, int total)

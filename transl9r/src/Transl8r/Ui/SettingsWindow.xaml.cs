@@ -49,6 +49,7 @@ public partial class SettingsWindow : Window
     private readonly TextBox _fontSize = new();
     private readonly TextBox _origFontSize = new();
     private readonly TextBox _opacity = new();
+    private readonly CheckBox _showInCaptures = new();
     private readonly TextBox _audioMsgSeconds = new();
     private readonly TextBox _audioMaxHeight = new();
     private readonly CheckBox _outTts = new();
@@ -102,8 +103,11 @@ public partial class SettingsWindow : Window
         };
         if (tip != null)
         {
-            lbl.ToolTip = tip;
-            control.ToolTip = tip;
+            // WPF tooltips don't wrap a raw string — it renders as one endless line.
+            // Wrap it in a width-capped TextBlock so long tips stay readable. (A new
+            // TextBlock per host: a single instance can't be the content of two.)
+            lbl.ToolTip = TipBlock(tip);
+            control.ToolTip = TipBlock(tip);
         }
         Grid.SetRow(lbl, r);
         Grid.SetColumn(lbl, 0);
@@ -115,6 +119,13 @@ public partial class SettingsWindow : Window
         Grid.SetColumn(control, 1);
         g.Children.Add(control);
     }
+
+    private static TextBlock TipBlock(string text) => new()
+    {
+        Text = text,
+        TextWrapping = TextWrapping.Wrap,
+        MaxWidth = 360,
+    };
 
     private Grid BuildInputTab()
     {
@@ -177,6 +188,12 @@ public partial class SettingsWindow : Window
         Row(g, "Original (JA) font size", _origFontSize,
             "Size of the original Japanese line. Only used when 'Show original JA text' is on.");
         Row(g, "Overlay background opacity", _opacity);
+        Row(g, "Show overlays in screen captures", _showInCaptures,
+            "OFF (default): overlays are hidden from screenshots and screen recordings, so "
+            + "one region's OCR can't read another overlay's on-screen text and translate it "
+            + "again (the duplicate-output feedback loop). "
+            + "ON: overlays show up in captures — handy for documentation, but the feedback "
+            + "loop can come back. (Needs Windows 10 2004+.)");
         Row(g, "Audio log: line lifetime (s, 0 = keep)", _audioMsgSeconds,
             "How long each audio subtitle line stays before it expires. 0 keeps lines until they scroll off the top.");
         Row(g, "Audio log: max height (% of screen)", _audioMaxHeight,
@@ -228,6 +245,7 @@ public partial class SettingsWindow : Window
         _showOriginal.Checked += (_, _) => _origFontSize.IsEnabled = true;
         _showOriginal.Unchecked += (_, _) => _origFontSize.IsEnabled = false;
         _opacity.Text = Str(_cfg.OverlayOpacity);
+        _showInCaptures.IsChecked = !_cfg.ExcludeOverlayFromCapture; // checked = visible in captures
         _audioMsgSeconds.Text = Str(_cfg.AudioMessageSeconds);
         _audioMaxHeight.Text = _cfg.AudioOverlayMaxHeightPercent.ToString(CultureInfo.InvariantCulture);
         _outTts.IsChecked = _cfg.OutputTts;
@@ -269,6 +287,7 @@ public partial class SettingsWindow : Window
         c.OverlayFontSize = (int)Dbl(_fontSize.Text, c.OverlayFontSize);
         c.OverlayOrigFontSize = (int)Dbl(_origFontSize.Text, c.OverlayOrigFontSize);
         c.OverlayOpacity = Dbl(_opacity.Text, c.OverlayOpacity);
+        c.ExcludeOverlayFromCapture = _showInCaptures.IsChecked != true; // checked = visible in captures
         c.AudioMessageSeconds = Dbl(_audioMsgSeconds.Text, c.AudioMessageSeconds);
         c.AudioOverlayMaxHeightPercent = (int)Dbl(_audioMaxHeight.Text, c.AudioOverlayMaxHeightPercent);
         c.OutputTts = _outTts.IsChecked == true;

@@ -1,82 +1,49 @@
 using System;
-using System.Collections.Generic;
 using System.Windows;
-using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using Transl8r.Config;
 using Transl8r.Interop;
-using Region = Transl8r.Config.Region;
 
 namespace Transl8r.Ui;
 
 /// <summary>
-/// Always-on-top, click-through, translucent translation overlay. One per
-/// region (region == null would be the audio overlay, Phase 3).
+/// Shared base for the always-on-top, click-through, translucent translation
+/// overlays. Owns the native plumbing and the common chrome (font/opacity from
+/// config, edit-mode drag, offset persistence); the two concrete modes —
+/// <see cref="RegionOverlay"/> (replace-in-place, anchored to a screen region)
+/// and <see cref="RollingOverlay"/> (scrolling subtitle log) — override only the
+/// positioning and how text is shown.
 ///
 /// Click-through and topmost are owned natively (HANDOVER #9, #11a): WPF doesn't
 /// re-sync window styles on activation the way Qt did, so we just set
 /// WS_EX_TRANSPARENT once and re-assert HWND_TOPMOST on every show (games steal
 /// z-order). The Qt "3 failed cuts" saga does not apply here.
 /// </summary>
-public partial class OverlayWindow : Window
+public abstract partial class OverlayWindow : Window
 {
     private const string Placeholder = ">>  drag me  <<";
 
-    private AppConfig _cfg;
-    private readonly Region? _region;
-    private int _offsetX;
-    private int _offsetY;
-    private IntPtr _hwnd;
-    private bool _editMode;
-    private bool _showingPlaceholder;
+    protected AppConfig _cfg;
+    protected int _offsetX;
+    protected int _offsetY;
+    protected IntPtr _hwnd;
+    protected bool _editMode;
+    protected bool _showingPlaceholder;
 
-    // Rolling-log state (audio overlay only, i.e. region == null): accumulated
-    // translated lines (with arrival time), newest last; trimmed from the front
-    // when out of space or expired.
-    private const int MaxHistory = 60;
-    private readonly LinkedList<(string Ja, string En, DateTime At)> _history = new();
-    private double _maxHeightFrac = 0.4;   // of work-area height
-    private double _ttlSeconds;            // 0 = no expiry
-    private System.Windows.Threading.DispatcherTimer? _ttlTimer;
-
-    /// <summary>The region-less audio overlay behaves as a scrolling subtitle
-    /// log, bottom-anchored and growing upward. Region overlays replace in place.</summary>
-    private bool Rolling => _region == null;
-
-    public bool HasText { get; private set; }
+    public bool HasText { get; protected set; }
 
     /// <summary>Raised after a drag in edit mode with the new (dx, dy) offset.</summary>
     public event Action<int, int>? OffsetChanged;
 
-    public OverlayWindow(AppConfig cfg, Region? region, int offsetX, int offsetY)
+    protected OverlayWindow(AppConfig cfg, int offsetX, int offsetY)
     {
         InitializeComponent();
         _cfg = cfg;
-        _region = region;
         _offsetX = offsetX;
         _offsetY = offsetY;
-
-        if (Rolling)
-        {
-            _ttlTimer = new System.Windows.Threading.DispatcherTimer
-            {
-                Interval = TimeSpan.FromMilliseconds(500),
-            };
-            _ttlTimer.Tick += (_, _) => ExpireOldLines();
-        }
-
         ApplyConfig(cfg);
-
-        // rolling overlay grows/shrinks with content; keep its bottom edge anchored
-        SizeChanged += (_, _) =>
-        {
-            if (Rolling && _hwnd != IntPtr.Zero)
-            {
-                Place();
-            }
-        };
     }
 
     public void ApplyConfig(AppConfig cfg)
@@ -89,20 +56,10 @@ public partial class OverlayWindow : Window
         byte alpha = (byte)Math.Clamp((int)(cfg.OverlayOpacity * 255), 0, 255);
         Root.Background = new SolidColorBrush(Color.FromArgb(alpha, 10, 10, 10));
 
-        if (Rolling)
-        {
-            _maxHeightFrac = Math.Clamp(cfg.AudioOverlayMaxHeightPercent / 100.0, 0.1, 0.95);
-            _ttlSeconds = Math.Max(0, cfg.AudioMessageSeconds);
-            if (_ttlTimer != null)
-            {
-                _ttlTimer.IsEnabled = _ttlSeconds > 0;
-            }
-            if (HasText)
-            {
-                RenderRolling(); // re-trim to the new max height
-            }
-        }
-        // apply show-original live to a box that's already on screen
+        ApplyModeConfig(cfg);
+
+        // apply show-original live to a box already on screen. (Region overlays
+        // use OrigText; the rolling log keeps it collapsed and renders JA inline.)
         if (HasText)
         {
             OrigText.Visibility = (cfg.ShowOriginal && OrigText.Text.Length > 0)
@@ -110,8 +67,23 @@ public partial class OverlayWindow : Window
         }
         if (_hwnd != IntPtr.Zero)
         {
+            ApplyCaptureExclusion();
             Place();
         }
+    }
+
+    /// <summary>Mode-specific config (e.g. the rolling log's max height + TTL).</summary>
+    protected virtual void ApplyModeConfig(AppConfig cfg) { }
+
+    /// <summary>Mark (or unmark) the window as excluded from screen capture, so our
+    /// own overlay text can't be OCR'd by another region and re-translated. Visible
+    /// to the user either way; only capture APIs (incl. screenshots) are affected.</summary>
+    private void ApplyCaptureExclusion()
+    {
+        NativeMethods.SetWindowDisplayAffinity(_hwnd,
+            _cfg.ExcludeOverlayFromCapture
+                ? NativeMethods.WDA_EXCLUDEFROMCAPTURE
+                : NativeMethods.WDA_NONE);
     }
 
     protected override void OnSourceInitialized(EventArgs e)
@@ -125,12 +97,13 @@ public partial class OverlayWindow : Window
         NativeMethods.SetWindowLong(_hwnd, NativeMethods.GWL_EXSTYLE, ex);
 
         SetClickThrough(true);
+        ApplyCaptureExclusion();
         Place();
         AssertTopmost();
     }
 
     /// <summary>physical->DIP scale for the monitor this window is on.</summary>
-    private double Scale()
+    protected double Scale()
     {
         if (_hwnd != IntPtr.Zero)
         {
@@ -143,185 +116,27 @@ public partial class OverlayWindow : Window
         return 1.0;
     }
 
-    /// <summary>Computed (x, y, width) in DIPs BEFORE the offset is applied.</summary>
-    private (double X, double Y, double W) BasePosition()
-    {
-        double s = Scale();
-        if (_region != null)
-        {
-            // region coords are physical px; WPF positions in DIPs (HANDOVER #8)
-            double x = _region.Left / s;
-            double y = ((_region.Top + _region.Height) / s) + 8;
-            double w = Math.Max(280, _region.Width / s);
-            return (x, y, w);
-        }
-        // audio overlay: centred near the bottom; y is the BOTTOM-edge anchor so
-        // the box grows upward as lines accumulate.
-        Rect wa = SystemParameters.WorkArea;
-        double ww = wa.Width * 0.6;
-        return (wa.Left + ((wa.Width - ww) / 2), wa.Top + wa.Height - 60, ww);
-    }
+    /// <summary>Computed (x, y, width) in DIPs BEFORE the offset is applied. The
+    /// meaning of y differs by mode (see <see cref="ComputeTop"/>).</summary>
+    protected abstract (double X, double Y, double W) BasePosition();
 
-    private void Place()
+    /// <summary>Maps the base y to the window Top. Region overlays are top-anchored
+    /// just below the region; the rolling log anchors its bottom edge so it grows
+    /// upward (overridden there).</summary>
+    protected virtual double ComputeTop(double y) => y + _offsetY;
+
+    protected void Place()
     {
         (double x, double y, double w) = BasePosition();
         Width = w;
         Left = x + _offsetX;
-        // rolling: anchor the bottom edge (y + offset) so growth goes upward;
-        // region overlays: top-anchored just below the region.
-        Top = Rolling ? (y - ActualHeight + _offsetY) : (y + _offsetY);
-    }
-
-    public void ShowText(string original, string translated)
-    {
-        HasText = true;
-        _showingPlaceholder = false;
-        OrigText.Text = original;
-        TransText.Text = translated;
-        OrigText.Visibility = (_cfg.ShowOriginal && original.Length > 0)
-            ? Visibility.Visible : Visibility.Collapsed;
-        if (!IsVisible)
-        {
-            Show();
-        }
-        // re-assert after show: cheap insurance against z-order / style churn.
-        // stay click-through unless we're being dragged in edit mode.
-        SetClickThrough(!_editMode);
-        AssertTopmost();
-    }
-
-    /// <summary>
-    /// Audio overlay: append a line to the rolling log. Fills downward then
-    /// scrolls — oldest lines drop off the top once the box would exceed its max
-    /// height. <paramref name="ja"/> is the original transcription (shown above the
-    /// translation when ShowOriginal is on; pass "" if unavailable). (Region
-    /// overlays use <see cref="ShowText"/> instead.)
-    /// </summary>
-    public void AppendLine(string ja, string translated)
-    {
-        if (string.IsNullOrWhiteSpace(translated))
-        {
-            return;
-        }
-        HasText = true;
-        _showingPlaceholder = false;
-        _history.AddLast((ja?.Trim() ?? string.Empty, translated.Trim(), DateTime.UtcNow));
-        while (_history.Count > MaxHistory)
-        {
-            _history.RemoveFirst();
-        }
-        RenderRolling();
-        if (!IsVisible)
-        {
-            Show();
-        }
-        SetClickThrough(!_editMode);
-        AssertTopmost();
-    }
-
-    private void RenderRolling()
-    {
-        // The rolling log paints everything into TransText (the stacked OrigText is
-        // only for region overlays). When ShowOriginal is on we render each entry
-        // as a smaller blue JA line above its EN translation, via inline Runs.
-        OrigText.Visibility = Visibility.Collapsed;
-        RenderHistory();
-
-        // trim oldest lines until the content fits the configured max height.
-        // Measure at the current wrap width to account for line wrapping.
-        double maxH = SystemParameters.WorkArea.Height * _maxHeightFrac;
-        double availW = Math.Max(50, Width - 24); // minus Border padding
-        while (_history.Count > 1)
-        {
-            TransText.Measure(new Size(availW, double.PositiveInfinity));
-            if (TransText.DesiredSize.Height <= maxH)
-            {
-                break;
-            }
-            _history.RemoveFirst();
-            RenderHistory();
-        }
-    }
-
-    /// <summary>Paints the current history into TransText: plain EN text, or, when
-    /// ShowOriginal is on, a smaller blue JA line above each EN line via Runs.</summary>
-    private void RenderHistory()
-    {
-        if (!_cfg.ShowOriginal)
-        {
-            TransText.Text = JoinHistory(); // setting Text clears any inlines
-            return;
-        }
-
-        TransText.Inlines.Clear();
-        double jaSize = Math.Max(8, _cfg.OverlayOrigFontSize);
-        Brush jaBrush = OrigText.Foreground;
-        bool first = true;
-        foreach ((string ja, string en, DateTime _) in _history)
-        {
-            if (!first)
-            {
-                TransText.Inlines.Add(new LineBreak());
-            }
-            first = false;
-            if (ja.Length > 0)
-            {
-                TransText.Inlines.Add(new Run(ja) { FontSize = jaSize, Foreground = jaBrush });
-                TransText.Inlines.Add(new LineBreak());
-            }
-            TransText.Inlines.Add(new Run(en)); // inherits TransText size/colour
-        }
-    }
-
-    private string JoinHistory()
-    {
-        var sb = new System.Text.StringBuilder();
-        foreach ((string _, string en, DateTime _) in _history)
-        {
-            if (sb.Length > 0)
-            {
-                sb.Append('\n');
-            }
-            sb.Append(en);
-        }
-        return sb.ToString();
-    }
-
-    /// <summary>Drops lines older than the configured TTL (timer-driven).</summary>
-    private void ExpireOldLines()
-    {
-        if (_ttlSeconds <= 0 || _history.Count == 0 || _editMode)
-        {
-            return;
-        }
-        DateTime cutoff = DateTime.UtcNow.AddSeconds(-_ttlSeconds);
-        bool changed = false;
-        while (_history.First is { } first && first.Value.At < cutoff)
-        {
-            _history.RemoveFirst();
-            changed = true;
-        }
-        if (!changed)
-        {
-            return;
-        }
-        if (_history.Count == 0)
-        {
-            HasText = false;
-            TransText.Text = string.Empty;
-            Hide();
-        }
-        else
-        {
-            RenderRolling();
-        }
+        Top = ComputeTop(y);
     }
 
     /// <summary>Dialogue left the screen — clear and hide. No-op during edit mode:
-    /// the OCR loop keeps running, and a clear mid-drag would yank the box away.</summary>
-    public void ClearText()
+    /// the loop keeps running, and a clear mid-drag would yank the box away.</summary>
+    public virtual void ClearText()
     {
-        _history.Clear();
         if (_editMode)
         {
             return;
@@ -403,13 +218,16 @@ public partial class OverlayWindow : Window
         DragMove(); // blocks until mouse-up
         (double bx, double by, double _) = BasePosition();
         _offsetX = (int)Math.Round(Left - bx);
-        // rolling: store the bottom-edge delta so growth stays anchored where
-        // the user dropped it; region overlays store the top-edge delta.
-        _offsetY = (int)Math.Round((Rolling ? (Top + ActualHeight) : Top) - by);
+        _offsetY = (int)Math.Round(DragAnchorY() - by);
         OffsetChanged?.Invoke(_offsetX, _offsetY);
     }
 
-    private void SetClickThrough(bool on)
+    /// <summary>The window edge whose delta the offset tracks: Top for region
+    /// overlays, the bottom edge for the rolling log (overridden there) so growth
+    /// stays anchored where the user dropped it.</summary>
+    protected virtual double DragAnchorY() => Top;
+
+    protected void SetClickThrough(bool on)
     {
         if (_hwnd == IntPtr.Zero)
         {
@@ -427,7 +245,7 @@ public partial class OverlayWindow : Window
         NativeMethods.SetWindowLong(_hwnd, NativeMethods.GWL_EXSTYLE, ex);
     }
 
-    private void AssertTopmost()
+    protected void AssertTopmost()
     {
         if (_hwnd == IntPtr.Zero)
         {
