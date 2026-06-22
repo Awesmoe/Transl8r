@@ -69,6 +69,35 @@ Settings live in `config.json` next to the executable (schema shared with the
 Python version). Your real `config.json` is gitignored — keep API keys out of
 source control.
 
+## Troubleshooting
+
+**The model outputs gibberish (random JSON, repeated tokens, ignores your text).**
+If you pulled a model straight from a GGUF (`ollama run hf.co/<repo>:<quant>`),
+Ollama may have corrupted the chat template while auto-converting it from the
+GGUF's Jinja format to its own Go format — the model then never actually receives
+your prompt. Check it:
+
+```sh
+ollama show --modelfile <model>
+```
+
+If the `TEMPLATE` is missing `{{ .Prompt }}` (or `{{ .Response }}` looks
+truncated), that's the bug. The same model usually works fine under `llama.cpp`,
+which uses the Jinja template directly — it's specifically Ollama's converter that
+trips on non-trivial templates.
+
+Fix it by rebuilding the model with a correct template (this reuses the existing
+weights — no re-download). Create a `Modelfile`:
+
+```
+FROM <model>
+TEMPLATE """<the model's correct template, with {{ .Prompt }} and {{ .Response }} restored>"""
+```
+
+then `ollama create <model> -f Modelfile`. The authoritative template is the
+`tokenizer.chat_template` string embedded in the GGUF itself; translate its Jinja
+to Ollama's Go syntax. (This was hit with Tencent's `Hy-MT2-1.8B-GGUF`.)
+
 ## Status
 
 The screen-OCR feature set is complete and validated on real Windows. Audio input

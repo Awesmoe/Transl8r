@@ -11,9 +11,7 @@ namespace Transl8r.Translation;
 /// Uses the IPv4-preferring client since this often points at localhost.</summary>
 internal sealed class ServerTranslator : ITranslator
 {
-    private const string SystemPrompt =
-        "You are a translation engine. Translate the user's Japanese text into " +
-        "natural English. Output ONLY the translation, nothing else.";
+    private const string TargetLanguage = "English";
 
     private readonly string _url;
     private readonly string _model;
@@ -26,6 +24,14 @@ internal sealed class ServerTranslator : ITranslator
         _http = IPv4HttpClient.Create(TimeSpan.FromSeconds(60));
     }
 
+    // Hy-MT2's documented translation template: no system prompt, the instruction
+    // lives inline in the user turn. Generic OpenAI-compatible instruct models
+    // follow this single-message form just as well, so it stays portable.
+    private static string BuildPrompt(string text) =>
+        $"Translate the following text into {TargetLanguage}. Note that you should " +
+        "**only output the translated result without any additional explanation**:\n\n" +
+        text;
+
     public string Translate(string text)
     {
         var payload = new JsonObject
@@ -33,8 +39,7 @@ internal sealed class ServerTranslator : ITranslator
             ["model"] = _model,
             ["messages"] = new JsonArray
             {
-                new JsonObject { ["role"] = "system", ["content"] = SystemPrompt },
-                new JsonObject { ["role"] = "user", ["content"] = text },
+                new JsonObject { ["role"] = "user", ["content"] = BuildPrompt(text) },
             },
             ["temperature"] = 0.1,
             ["max_tokens"] = 512,
