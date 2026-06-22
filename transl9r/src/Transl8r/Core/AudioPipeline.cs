@@ -56,6 +56,7 @@ internal sealed class AudioPipeline
     private void Run(CancellationToken token)
     {
         WhisperTranscriber? whisper = null;
+        VadGate? vad = null;
         ITranslator? translator = null;
         AudioCapture? capture = null;
         var queue = new BlockingCollection<float[]>(new ConcurrentQueue<float[]>());
@@ -72,6 +73,15 @@ internal sealed class AudioPipeline
                 .EnsureAsync(_cfg.WhisperModel, m => Status?.Invoke(m), token)
                 .GetAwaiter().GetResult();
             whisper = new WhisperTranscriber(model, translate: translator == null);
+
+            if (_cfg.AudioVad)
+            {
+                Status?.Invoke("Loading voice-activity detection…");
+                string vadModel = WhisperModelStore
+                    .EnsureVadAsync(m => Status?.Invoke(m), token)
+                    .GetAwaiter().GetResult();
+                vad = new VadGate(vadModel);
+            }
 
             capture = new AudioCapture();
             capture.BlockReady += block =>
@@ -135,10 +145,18 @@ internal sealed class AudioPipeline
                 }
 
                 float[] chunk16 = AudioFile.Resample16kMono(chunk, sr);
-                string text = whisper.TranscribeAsync(chunk16, token).GetAwaiter().GetResult();
-                if (string.IsNullOrWhiteSpace(text))
+
+                // VAD gate: drop chunks with no speech so Whisper can't hallucinate
+                if (vad != null && !vad.HasSpeech(chunk16))
                 {
                     continue;
+                }
+
+                string raw = whisper.TranscribeAsync(chunk16, token).GetAwaiter().GetResult();
+                string? text = HallucinationFilter.Filter(raw);
+                if (text == null)
+                {
+                    continue; // empty, a sound cue, or a known hallucination phrase
                 }
 
                 if (translator != null)
@@ -164,6 +182,7 @@ internal sealed class AudioPipeline
             queue.CompleteAdding();
             capture?.Stop();
             capture?.Dispose();
+            vad?.Dispose();
             whisper?.Dispose();
         }
     }

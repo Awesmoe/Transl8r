@@ -39,6 +39,9 @@ public sealed class AppConfig
     public string WhisperModel { get; set; } = "small";
     public string WhisperDevice { get; set; } = "auto";
     public bool AudioUseTranslator { get; set; } = false;
+    // Silero VAD: skip chunks with no detected speech, so Whisper can't
+    // hallucinate captions ("thank you for watching") on music/silence.
+    public bool AudioVad { get; set; } = true;
 
     // --- translation backend ------------------------------------------------
     public string Translator { get; set; } = "argos";

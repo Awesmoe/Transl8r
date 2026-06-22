@@ -34,6 +34,7 @@ public partial class SettingsWindow : Window
     private readonly CheckBox _audioEnabled = new();
     private readonly ComboBox _whisperModel = new();
     private readonly ComboBox _whisperDevice = new();
+    private readonly CheckBox _audioVad = new();
     private readonly CheckBox _audioUseTranslator = new();
 
     // Translation
@@ -138,6 +139,9 @@ public partial class SettingsWindow : Window
         Row(g, "Audio pipeline (not yet wired)", _audioEnabled);
         Row(g, "Whisper model", _whisperModel);
         Row(g, "Whisper device", _whisperDevice);
+        Row(g, "Voice activity detection (skip non-speech)", _audioVad,
+            "Uses Silero VAD to drop chunks with no speech, preventing Whisper from " +
+            "hallucinating captions on music/silence (\"thank you for watching\").");
         Row(g, "Audio: transcribe then translate", _audioUseTranslator);
         return g;
     }
@@ -195,6 +199,7 @@ public partial class SettingsWindow : Window
         _audioEnabled.IsChecked = _cfg.AudioEnabled;
         _whisperModel.SelectedItem = _cfg.WhisperModel;
         _whisperDevice.SelectedItem = _cfg.WhisperDevice;
+        _audioVad.IsChecked = _cfg.AudioVad;
         _audioUseTranslator.IsChecked = _cfg.AudioUseTranslator;
 
         _translator.SelectedItem = _cfg.Translator;
@@ -238,6 +243,7 @@ public partial class SettingsWindow : Window
         c.AudioEnabled = _audioEnabled.IsChecked == true;
         c.WhisperModel = (string?)_whisperModel.SelectedItem ?? c.WhisperModel;
         c.WhisperDevice = (string?)_whisperDevice.SelectedItem ?? c.WhisperDevice;
+        c.AudioVad = _audioVad.IsChecked == true;
         c.AudioUseTranslator = _audioUseTranslator.IsChecked == true;
 
         c.Translator = (string?)_translator.SelectedItem ?? c.Translator;

@@ -60,4 +60,28 @@ internal static class WhisperModelStore
         status?.Invoke($"Whisper model '{type}' ready.");
         return path;
     }
+
+    /// <summary>Returns the path to the Silero VAD model, downloading it once
+    /// (~2 MB) if needed.</summary>
+    public static async Task<string> EnsureVadAsync(Action<string>? status, CancellationToken ct = default)
+    {
+        const SileroVadType type = SileroVadType.V5_1_2;
+        Directory.CreateDirectory(ModelsDir);
+        string path = Path.Combine(ModelsDir, $"ggml-silero-{type}.bin".ToLowerInvariant());
+
+        if (File.Exists(path) && new FileInfo(path).Length > 0)
+        {
+            return path;
+        }
+
+        status?.Invoke("Downloading Silero VAD model (one-time)…");
+        using Stream src = await WhisperGgmlDownloader.Default.GetGgmlSileroVadModelAsync(type, ct);
+        string tmp = path + ".part";
+        using (FileStream dst = File.Create(tmp))
+        {
+            await src.CopyToAsync(dst, ct);
+        }
+        File.Move(tmp, path, overwrite: true);
+        return path;
+    }
 }

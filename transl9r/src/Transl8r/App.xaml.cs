@@ -638,6 +638,7 @@ public partial class App : Application
         // restart the audio pipeline if a setting it captured at start changed
         bool audioKeysChanged =
             old.WhisperModel != Config.WhisperModel ||
+            old.AudioVad != Config.AudioVad ||
             old.AudioUseTranslator != Config.AudioUseTranslator ||
             (Config.AudioUseTranslator &&
                 (old.Translator != Config.Translator ||
